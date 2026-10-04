@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from parser import parse, parse_andamento
+from parser import agregar, parse, parse_andamento
 
 FIX = Path(__file__).parent / "fixtures"
 
@@ -59,3 +59,21 @@ def test_apuracao_parcial_real():
     assert r.pct_validos == 96.19
     votos = [c.votos for c in r.candidatos]
     assert votos == sorted(votos, reverse=True) and votos[0] > 0
+
+
+def test_agregar_soma_e_recalcula():
+    a = parse(carregar("br-c0001-e006257-u-parcial.json"))
+    b = parse(carregar("br-c0001-e006257-u-parcial.json"))
+    b.candidatos[0].votos += 1000  # muda o segundo "estado" para a soma não ser só o dobro
+    b.validos += 1000
+    b.comparecimento += 1000
+    g = agregar([a, b], "Teste")
+    assert g.abrangencia == "Teste" and g.validos == a.validos + b.validos
+    assert g.validos + g.brancos + g.nulos == g.comparecimento
+    assert abs(g.pct_comparecimento - a.pct_comparecimento) < 0.1  # base = eleitorado apurado, como o TSE
+    assert abs(g.pct_comparecimento + g.pct_abstencao - 100) < 0.1
+    assert g.candidatos[0].votos == a.candidatos[0].votos + b.candidatos[0].votos
+    assert g.candidatos[0].pct_validos == round(100 * g.candidatos[0].votos / g.validos, 2)
+    assert abs(sum(c.pct_validos for c in g.candidatos) - 100) < 0.1
+    assert a.candidatos[0].votos == parse(carregar("br-c0001-e006257-u-parcial.json")).candidatos[0].votos  # original intacto
+    assert agregar([], "Vazio").candidatos == []

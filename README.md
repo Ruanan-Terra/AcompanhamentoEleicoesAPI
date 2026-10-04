@@ -19,9 +19,18 @@ python3 -m venv .venv
 
 Abra http://localhost:8501. Na barra lateral escolha turno, cargo, UF e o intervalo de atualização.
 
-A tela mostra: progresso da apuração, cartões com foto dos primeiros colocados (a partir do primeiro voto
-apurado), gráfico de barras por candidato, mapa do Brasil ("Quem lidera" por UF ou "Andamento" da apuração),
-indicadores de comparecimento/votos e a tabela completa. Segue o tema claro/escuro do sistema.
+O app tem duas páginas (menu no topo da barra lateral):
+
+- **Visão geral**: uma página com todos os cargos. Botões de região (Brasil, Norte, Nordeste, Centro-Oeste,
+  Sudeste, Sul) e de estado; indicadores do recorte; três mapas lado a lado (Presidente, Governador, Senado)
+  coloridos por quem lidera em cada UF, com as UFs fora do filtro esmaecidas; resumo de cada cargo e, ao
+  escolher um estado, os deputados federais e estaduais mais votados. Presidente por região soma os votos
+  das UFs da região.
+- **Painel detalhado**: um cargo por vez, com cartões dos candidatos, gráfico, mapa ("Quem lidera",
+  "Desempenho" e "Andamento"), tabela "Resultado por estado", indicadores e lista completa com busca.
+
+Gráficos e mapas são interativos (Plotly): zoom, arrastar, detalhes ao passar o mouse, baixar como PNG e,
+nos mapas por partido, clicar na legenda para esconder/mostrar um partido. Segue o tema claro/escuro do sistema.
 
 ## Testes
 
@@ -37,9 +46,10 @@ As fixtures em `tests/fixtures/` são arquivos reais baixados do TSE em 04/10/20
 |---|---|
 | `config.py` | URL base, códigos de eleição/cargo, UFs, intervalos |
 | `tse_client.py` | Monta a URL, faz o GET e guarda a última resposta válida em `cache/` |
-| `parser.py` | Converte o JSON em `Resultado` / `Candidato` |
-| `app.py` | Interface Streamlit (gráficos e mapa com Altair, que já vem com o Streamlit) |
-| `assets/br_uf.geojson` | Contorno das UFs (malha do IBGE, pré-processada: sigla da UF + anéis no sentido horário exigido pelo d3) |
+| `parser.py` | Converte o JSON em `Resultado` / `Candidato`; `agregar()` soma UFs (Presidente por região) |
+| `app.py` | Navegação e as duas páginas (Visão geral e Painel detalhado) |
+| `ui.py` | Componentes e dados compartilhados: cartões, gráficos e mapas (Plotly), cache |
+| `assets/br_uf.geojson` | Contorno das UFs (malha do IBGE, pré-processada: sigla da UF + anéis no sentido horário exigido pelo d3, usado pelo Plotly) |
 | `.streamlit/config.toml` | Tema claro/escuro e toolbar |
 
 ## Endpoints utilizados
@@ -71,10 +81,11 @@ Campos usados:
 
 | Campo | Significado |
 |---|---|
-| `dg`, `hg` | data/hora de geração do arquivo |
+| `dg`, `hg` | data/hora de geração do arquivo (horário de Brasília; usada nos recortes por região) |
 | `dt`, `ht` | data/hora da totalização (vazios antes da divulgação; o app usa `dg`/`hg` nesse caso; confirmado preenchido às 17:37 de 04/10) |
 | `s.ts`, `s.st`, `s.pst` | seções: total, totalizadas, % totalizadas |
-| `e.te`, `e.c`, `e.pc`, `e.a`, `e.pa` | eleitorado, comparecimento (e %), abstenção (e %) |
+| `e.te`, `e.est` | eleitorado total e eleitorado das seções já totalizadas |
+| `e.c`, `e.pc`, `e.a`, `e.pa` | comparecimento e abstenção; os % são sobre `est`, não sobre `te` |
 | `v.vv`, `v.vb`, `v.tvn` | votos válidos, brancos, total de nulos (`tvn` = `vn` nulos + `vnt` nulos técnicos; válidos + brancos + `tvn` = comparecimento) |
 | `v.pvvc`, `v.pvb`, `v.ptvn` | % de válidos, brancos e nulos sobre o total de votos (`pvv` é relativo aos próprios válidos: sempre 100%) |
 | `carg[0].nmn`, `carg[0].nv` | nome do cargo, número de vagas |
@@ -115,5 +126,7 @@ O formato "simplificado" de 2022 (`dados-simplificados/...-r.json`) retorna 404 
 - Requisições sequenciais, uma por arquivo exibido.
 - `st.cache_data(ttl=60)`: o mesmo arquivo nunca é baixado duas vezes em menos de 60 s, mesmo com várias abas abertas.
 - Intervalo de atualização automática mínimo de 60 s (`config.INTERVALO_MIN_S`).
-- Mapa "Quem lidera" (27 arquivos) atualiza no máximo a cada 5 min.
+- Dados por UF (27 arquivos por cargo) atualizam no máximo a cada 5 min. A Visão geral usa Presidente,
+  Governador e Senador (até 81 arquivos pequenos a cada 5 min, compartilhados com o Painel detalhado);
+  deputados só são baixados ao escolher um estado.
 - Em falha de rede, exibe a última cópia salva em `cache/`.

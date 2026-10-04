@@ -23,6 +23,15 @@ CARGOS_2T = ("Presidente", "Governador")
 
 UFS = ("ac al am ap ba ce df es go ma mg ms mt pa pb pe pi pr rj rn ro rr rs sc se sp to").split()
 
+# Regiões do IBGE
+REGIOES = {
+    "Norte": "ac am ap pa ro rr to".split(),
+    "Nordeste": "al ba ce ma pb pe pi rn se".split(),
+    "Centro-Oeste": "df go ms mt".split(),
+    "Sudeste": "es mg rj sp".split(),
+    "Sul": "pr rs sc".split(),
+}
+
 INTERVALO_MIN_S = 60  # nunca consultar o mesmo arquivo em menos de 60 s
 INTERVALO_PADRAO_S = 120
 MAPA_TTL_S = 300  # o mapa "quem lidera" baixa 27 arquivos (um por UF), então atualiza no máximo a cada 5 min
