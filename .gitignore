@@ -1,0 +1,29 @@
+# Ambientes Virtuais
+.venv/
+venv/
+env/
+ENV/
+.env
+
+# Cache de dados da API TSE
+cache/
+
+# Python & Pytest
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Sistema Operacional
+.DS_Store
+*.DS_Store
+Thumbs.db
+
+# Editores / IDEs
+.vscode/
+.idea/
