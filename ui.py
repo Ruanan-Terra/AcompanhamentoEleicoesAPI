@@ -134,7 +134,7 @@ PLOTLY_CONFIG = {
 }
 
 
-def _plotar(fig: go.Figure, altura: int, margem_direita: int = 0):
+def _plotar(fig: go.Figure, altura: int, margem_direita: int = 0, ferramentas: bool = True):
     fig.update_layout(
         height=altura,
         margin=dict(l=0, r=margem_direita, t=10, b=0),
@@ -143,7 +143,7 @@ def _plotar(fig: go.Figure, altura: int, margem_direita: int = 0):
         plot_bgcolor="rgba(0,0,0,0)",
         hoverlabel=dict(align="left"),
     )
-    st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG)
+    st.plotly_chart(fig, width="stretch", config=PLOTLY_CONFIG if ferramentas else {**PLOTLY_CONFIG, "displayModeBar": False})
 
 
 def grafico_barras(cands: list[Candidato], rotulo_max: int = 240):
@@ -170,14 +170,48 @@ def grafico_barras(cands: list[Candidato], rotulo_max: int = 240):
     _plotar(fig, 30 * len(cands) + 70, margem_direita=48)  # espaço para o rótulo da barra mais longa
 
 
-def _estilo_ufs(ufs: list[str], destaque: set[str], esmaecer: bool) -> dict:
-    """Opacidade e contorno por UF: realça o destaque (contorno se for uma UF só) e apaga o resto se esmaecer."""
+def grafico_placar(lideres: dict[str, Candidato]):
+    """Barra única empilhada: quantas UFs cada partido lidera (passe o mouse para ver quais)."""
+    por_partido: dict[str, list[str]] = {}
+    for uf, c in sorted(lideres.items()):
+        por_partido.setdefault(c.partido, []).append(uf.upper())
+    ordem = sorted(por_partido, key=lambda p: (-len(por_partido[p]), p))
+    fig = go.Figure([
+        go.Bar(
+            x=[len(por_partido[p])], y=[""], orientation="h", name=p,
+            marker=dict(color=cor(p), line=dict(color=tom(FUNDO), width=2)),
+            text=[f"{p} {len(por_partido[p])}"], textposition="inside", insidetextanchor="middle",
+            hovertemplate=f"<b>{p}</b> lidera em {len(por_partido[p])} UF(s)<br>{', '.join(por_partido[p])}<extra></extra>",
+        )
+        for p in ordem
+    ])
+    fig.update_layout(barmode="stack", showlegend=False, uniformtext=dict(minsize=9, mode="hide"), bargap=0)
+    fig.update_xaxes(visible=False, fixedrange=True)
+    fig.update_yaxes(visible=False, fixedrange=True)
+    _plotar(fig, 44, ferramentas=False)
+
+
+def _grupo_uf(destaque: set[str], esmaecer: bool):
+    """0 = apagada, 1 = normal, 2 = contornada (UF única em destaque).
+
+    O Plotly ignora opacidade/contorno por estado dentro de uma mesma camada do choropleth, então cada grupo
+    vira uma camada própria, desenhada nesta ordem: a contornada por último, para a borda não ficar sob as vizinhas."""
     contorno = destaque if len(destaque) == 1 else set()
-    tinta, fundo = tom(TINTA), tom(FUNDO)
-    return dict(
-        opacity=[0.22 if esmaecer and destaque and u not in destaque else 1.0 for u in ufs],
-        line=dict(width=[2.5 if u in contorno else 0.8 for u in ufs],
-                  color=[tinta if u in contorno else fundo for u in ufs]),
+
+    def grupo(uf: str) -> int:
+        if uf in contorno:
+            return 2
+        return 0 if esmaecer and destaque and uf not in destaque else 1
+    return grupo
+
+
+def _camada(ufs: list[str], grupo: int, **kw) -> go.Choropleth:
+    geo = {"type": "FeatureCollection", "features": [f for f in malha()["features"] if f["properties"]["uf"] in ufs]}
+    return go.Choropleth(
+        geojson=geo, featureidkey="properties.uf", locations=ufs,  # só os contornos desta camada (página leve)
+        marker=dict(opacity=0.22 if grupo == 0 else 1.0,
+                    line=dict(width=2.5 if grupo == 2 else 0.8, color=tom(TINTA) if grupo == 2 else tom(FUNDO))),
+        **kw,
     )
 
 
@@ -189,37 +223,41 @@ def _plotar_mapa(fig: go.Figure, altura: int):
 
 def mapa_categorias(cat: dict[str, str], cores: dict[str, str], hover: dict[str, str],
                     destaque: set[str] = frozenset(), esmaecer: bool = False, altura: int = 480):
-    """Uma camada por categoria (partido), na ordem de `cores`: clicar na legenda esconde/mostra a camada."""
-    fig = go.Figure()
-    for nome, cor_hex in cores.items():
-        ufs = [u for u in config.UFS if cat.get(u) == nome]
-        if not ufs:
-            continue
-        # só os contornos desta camada: a malha inteira em cada camada multiplicaria o tamanho da página
-        geo = {"type": "FeatureCollection", "features": [f for f in malha()["features"] if f["properties"]["uf"] in ufs]}
-        fig.add_trace(go.Choropleth(
-            geojson=geo, featureidkey="properties.uf", locations=ufs, z=[1] * len(ufs),
-            colorscale=[[0, cor_hex], [1, cor_hex]], showscale=False, name=nome, showlegend=True,
-            marker=_estilo_ufs(ufs, destaque, esmaecer),
-            hovertext=[hover[u] for u in ufs], hovertemplate="%{hovertext}<extra></extra>",
-        ))
+    """Cor por categoria (partido), na ordem de `cores`; clicar na legenda esconde/mostra o partido."""
+    grupo_de = _grupo_uf(destaque, esmaecer)
+    fig, na_legenda = go.Figure(), set()
+    for grupo in (0, 1, 2):
+        for rank, (nome, cor_hex) in enumerate(cores.items()):
+            ufs = [u for u in config.UFS if cat.get(u) == nome and grupo_de(u) == grupo]
+            if not ufs:
+                continue
+            fig.add_trace(_camada(
+                ufs, grupo, z=[1] * len(ufs), colorscale=[[0, cor_hex], [1, cor_hex]], showscale=False,
+                name=nome, legendgroup=nome, legendrank=rank, showlegend=nome not in na_legenda,
+                hovertext=[hover[u] for u in ufs], hovertemplate="%{hovertext}<extra></extra>",
+            ))
+            na_legenda.add(nome)
     _plotar_mapa(fig, altura)
 
 
 def mapa_valores(valores: dict[str, float], hover: dict[str, str], zmax: float, titulo: str,
                  destaque: set[str] = frozenset(), esmaecer: bool = False, altura: int = 480):
     """Escala sequencial (azul claro → escuro) de um valor por UF."""
-    ufs = config.UFS
+    grupo_de = _grupo_uf(destaque, esmaecer)
     rampa = tom(RAMPA)
-    fig = go.Figure(go.Choropleth(
-        geojson=malha(), featureidkey="properties.uf", locations=ufs, z=[valores.get(u, 0) for u in ufs],
-        zmin=0, zmax=zmax, colorscale=[[0, rampa[0]], [1, rampa[1]]],
-        colorbar=dict(title=dict(text=titulo, side="top"), orientation="h", x=0.5, y=-0.02, yanchor="top",
-                      len=0.6, thickness=10, ticksuffix="%"),
-        marker=_estilo_ufs(ufs, destaque, esmaecer),
-        hovertext=[hover.get(u, f"<b>{u.upper()}</b><br>sem dados") for u in ufs],
-        hovertemplate="%{hovertext}<extra></extra>",
-    ))
+    fig = go.Figure()
+    for grupo in (0, 1, 2):
+        ufs = [u for u in config.UFS if grupo_de(u) == grupo]
+        if not ufs:
+            continue
+        fig.add_trace(_camada(
+            ufs, grupo, z=[valores.get(u, 0) for u in ufs], zmin=0, zmax=zmax,
+            colorscale=[[0, rampa[0]], [1, rampa[1]]], showscale=not fig.data,  # uma barra de cores só
+            colorbar=dict(title=dict(text=titulo, side="top"), orientation="h", x=0.5, y=-0.02, yanchor="top",
+                          len=0.6, thickness=10, ticksuffix="%"),
+            hovertext=[hover.get(u, f"<b>{u.upper()}</b><br>sem dados") for u in ufs],
+            hovertemplate="%{hovertext}<extra></extra>",
+        ))
     _plotar_mapa(fig, altura)
 
 
